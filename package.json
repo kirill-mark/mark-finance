@@ -1,0 +1,30 @@
+{
+  "name": "mark-finance",
+  "version": "1.0.0",
+  "description": "Карманный финансовый директор: личные деньги и продакшн, платёжный календарь, прогноз, симуляции, помощник.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "serve": "node scripts/serve.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kirill-mark/mark-finance.git"
+  },
+  "type": "module",
+  "homepage": "https://github.com/kirill-mark/mark-finance#readme",
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.1",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/node": "^26.6.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

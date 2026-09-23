@@ -1,7 +1,7 @@
 {
-  "name": "Mark Finance",
+  "name": "Mark Finance — финансовый директор",
   "short_name": "Finance",
-  "description": "Приходы, расходы и остаток — личное и бизнес",
+  "description": "Личные деньги и продакшн: платёжный календарь, прогноз, симуляции решений",
   "lang": "ru",
   "start_url": "./",
   "scope": "./",
