@@ -20,6 +20,6 @@ describe("supabase/install.sql", () => {
     const t = await pg.query<{ n: number }>("select count(*)::int as n from information_schema.tables where table_name like 'cfo_%'");
     expect(t.rows[0].n).toBeGreaterThanOrEqual(30);
     const owner = await pg.query<{ n: number }>("select count(*)::int as n from cfo_allowed_users");
-    expect(owner.rows[0].n).toBe(1);
+    expect(owner.rows[0].n).toBe(2);
   }, 60_000);
 });
