@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="theme-color" content="#14392F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Finance">
 <title>Mark Finance</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -219,6 +227,12 @@ td.muted,.dash{color:var(--ink-3)}
 .actions .l{display:flex;gap:8px;flex-wrap:wrap}
 .actions .r{display:flex;gap:8px;margin-left:auto}
 .ferr{color:var(--danger);font-size:13px}
+.overlay.auth{background:var(--bg);align-items:center;z-index:25}
+.auth .sheet{max-width:400px;gap:16px}
+.auth .brand h1{font-size:18px}
+.auth .switch{border:0;background:none;color:var(--business);font-size:14px;font-weight:500;padding:0;align-self:center}
+.auth .ok{color:var(--in);font-size:13.5px}
+.account{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
 
 @media (max-width:980px){
@@ -344,6 +358,7 @@ td.muted,.dash{color:var(--ink-3)}
   <footer class="foot">
     <span id="countInfo">Загружаю данные…</span>
     <div class="tools">
+      <span class="account" id="account" hidden><span id="accountEmail"></span><button type="button" class="btn small" id="logout">Выйти</button></span>
       <button type="button" class="btn small" id="exportCsv">Экспорт в Excel (CSV)</button>
       <button type="button" class="btn small" id="exportJson">Резервная копия</button>
       <button type="button" class="btn small" id="importBtn">Восстановить из копии</button>
@@ -431,6 +446,22 @@ td.muted,.dash{color:var(--ink-3)}
       <button type="button" class="btn" id="oCancel">Отмена</button>
       <button type="submit" class="btn primary">Сохранить</button>
     </div></div>
+  </form>
+</div>
+
+<div class="overlay auth" id="authScreen" hidden>
+  <form class="sheet" id="authForm" novalidate>
+    <div class="brand">
+      <div class="logo" aria-hidden="true">M</div>
+      <div><h1>Mark Finance</h1><p>Приходы, расходы и остаток</p></div>
+    </div>
+    <p class="lead" id="authLead">Войди тем же аккаунтом, что и в планировщике MARK. Данные синхронизируются между телефоном и компьютером.</p>
+    <label class="field"><span>Почта</span><input id="a-email" type="email" autocomplete="email" required></label>
+    <label class="field"><span>Пароль</span><input id="a-pass" type="password" autocomplete="current-password" minlength="6" required></label>
+    <div class="ferr" id="aerr" hidden></div>
+    <div class="ok" id="amsg" hidden></div>
+    <button type="submit" class="btn primary" id="authSubmit">Войти</button>
+    <button type="button" class="switch" id="authSwitch">Нет аккаунта? Создать</button>
   </form>
 </div>
 
@@ -1032,18 +1063,169 @@ function sampleData(){
   return{entries:out,opening:{date:Y+'-01-01',personal:250000,business:400000,example:true}};
 }
 
+/* Синхронизация через Supabase — тот же проект и те же аккаунты, что у планировщика MARK.
+   Всё состояние пользователя — один JSON в таблице finance_state (см. supabase/finance_state.sql).
+   Копия лежит в localStorage, поэтому приложение работает без сети и досылает изменения позже. */
+const SB_URL='https://ofgicgqsmjvpsrvzefib.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9mZ2ljZ3FzbWp2cHNydnplZmliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxODUyMTAsImV4cCI6MjEwMzc2MTIxMH0._N5Dpuz1ySkBwgypp8gSOPF7U3DnwV0XGIaPAGa3y34';
+const SB_LIB='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+const PUSH_DEBOUNCE_MS=600;
+
+function syncStore(sb,user,onStatus){
+  const KEY='mark-finance-cache-'+user.id,subs={e:[],s:[]};
+  let timer=null,dirty=false,closed=false,status='ok',channel=null,mem=null;
+  try{mem=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
+  if(!mem||typeof mem!=='object'||!mem.entries) mem={entries:{},settings:{currency:'₽'},updatedAt:0};
+  const cache=()=>{try{localStorage.setItem(KEY,JSON.stringify(mem))}catch(e){}};
+  const emit=()=>{if(closed)return;const list=Object.entries(mem.entries).map(([id,d])=>Object.assign({},d,{id}));subs.e.forEach(f=>f(list));subs.s.forEach(f=>f(mem.settings||{}))};
+  const setStatus=(v)=>{if(status!==v){status=v;onStatus()}};
+  const missing=err=>err&&(err.code==='PGRST205'||err.code==='42P01'||/finance_state/.test(err.message||''));
+  async function push(){
+    if(closed)return;clearTimeout(timer);
+    const stamp=mem.updatedAt;
+    const {error}=await sb.from('finance_state').upsert({user_id:user.id,data:mem,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+    if(error){setStatus(missing(error)?'setup':'offline');if(!closed)timer=setTimeout(push,15000);return}
+    if(mem.updatedAt===stamp) dirty=false;
+    setStatus('ok');
+  }
+  const commit=()=>{mem.updatedAt=Date.now();dirty=true;cache();emit();clearTimeout(timer);timer=setTimeout(push,PUSH_DEBOUNCE_MS);return Promise.resolve()};
+  function applyRemote(r){
+    if(!r||!r.entries||dirty||(r.updatedAt||0)<=(mem.updatedAt||0)) return;
+    mem=r;cache();emit();
+  }
+  (async()=>{
+    const {data,error}=await sb.from('finance_state').select('data').eq('user_id',user.id).maybeSingle();
+    if(closed)return;
+    if(error){setStatus(missing(error)?'setup':'offline');emit();return}
+    setStatus('ok');
+    const remote=data&&data.data,hasLocal=mem.updatedAt||Object.keys(mem.entries).length;
+    if(remote&&remote.entries&&(remote.updatedAt||0)>=(mem.updatedAt||0)){mem=remote;cache();emit()}
+    else if(!remote&&!hasLocal){const s=sampleData();s.entries.forEach(e=>{const{id,...r}=e;mem.entries[id]=r});mem.settings.opening=s.opening;commit()}
+    else{emit();dirty=true;push()}
+    channel=sb.channel('finance_state_'+user.id)
+      .on('postgres_changes',{event:'*',schema:'public',table:'finance_state',filter:'user_id=eq.'+user.id},p=>{if(p.new&&p.new.data)applyRemote(p.new.data)})
+      .subscribe();
+  })();
+  const onOnline=()=>{if(dirty)push()};
+  const onHide=()=>{if(document.visibilityState==='hidden'&&dirty)push()};
+  window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',onHide);
+  return{
+    get label(){return status==='ok'?'синхронизируется между устройствами':status==='setup'?'облачная база не настроена — данные пока только на этом устройстве':'нет связи — изменения сохранены на устройстве и отправятся позже'},
+    get status(){return status},
+    onEntries:cb=>{subs.e.push(cb);if(mem.updatedAt||Object.keys(mem.entries).length)setTimeout(emit,0);return()=>{}},
+    onSettings:cb=>{subs.s.push(cb);return()=>{}},
+    add:d=>{mem.entries['c'+Date.now().toString(36)+Math.random().toString(36).slice(2,7)]=d;return commit()},
+    put:(k,d)=>{mem.entries[k]=d;return commit()},
+    update:(k,p)=>{if(!mem.entries[k])return Promise.reject({code:'invalid_argument'});mem.entries[k]=Object.assign({},mem.entries[k],p);return commit()},
+    remove:k=>{delete mem.entries[k];return commit()},
+    saveSettings:s=>{mem.settings=Object.assign({},s);return commit()},
+    async flush(){if(dirty)await push();return !dirty},
+    close(wipe){closed=true;clearTimeout(timer);window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',onHide);
+      if(channel)sb.removeChannel(channel);if(wipe){try{localStorage.removeItem(KEY)}catch(e){}}}
+  };
+}
+
+let noticeOwner='';
+function showNotice(owner,html){const n=$('#notice');noticeOwner=owner;n.innerHTML=html;n.hidden=false}
+function hideNotice(owner){if(noticeOwner===owner){$('#notice').hidden=true;noticeOwner=''}}
+function syncNotice(){
+  const s=state.store&&state.store.status;
+  if(s==='setup') showNotice('sync','<span><b>Облачная база для финансов ещё не создана.</b> Записи сохраняются на этом устройстве; после настройки они сами уйдут в облако.</span>');
+  else hideNotice('sync');
+}
+function attachStore(store){
+  state.store=store;
+  if(store.local) showNotice('local','<span><b>Данные хранятся в этом браузере.</b> В другом браузере или на другом устройстве их не будет — периодически делай «Резервную копию» внизу страницы.</span>');
+  store.onSettings(s=>{if(state.store!==store)return;applySettings(s);if(state.ready)render()});
+  store.onEntries(list=>{if(state.store!==store)return;state.entries=list.map(clean).filter(Boolean);state.ready=true;render()},
+    ()=>showNotice('lost','<span><b>Связь с хранилищем прервалась.</b> Обнови страницу — данные не потеряны.</span>'));
+  renderMeta();
+}
+
+/* ---------- вход (самостоятельная версия) ---------- */
+let sb=null,authMode='signin',authBusy=false;
+function setAuthMode(m){
+  authMode=m;const up=m==='signup';
+  $('#authSubmit').textContent=up?'Создать аккаунт':'Войти';
+  $('#authSwitch').textContent=up?'Уже есть аккаунт? Войти':'Нет аккаунта? Создать';
+  $('#a-pass').autocomplete=up?'new-password':'current-password';
+  $('#aerr').hidden=true;$('#amsg').hidden=true;
+}
+function authErrText(msg){
+  const m=String(msg||'').toLowerCase();
+  if(m.includes('invalid login')) return 'Неверная почта или пароль.';
+  if(m.includes('already registered')) return 'Такой аккаунт уже есть — нажми «Войти».';
+  if(m.includes('not confirmed')) return 'Почта не подтверждена — перейди по ссылке из письма.';
+  if(m.includes('password')&&m.includes('6')) return 'Пароль — минимум 6 символов.';
+  if(m.includes('fetch')||m.includes('network')) return 'Нет связи с сервером. Проверь интернет.';
+  return msg||'Не получилось войти.';
+}
+$('#authSwitch').addEventListener('click',()=>setAuthMode(authMode==='signin'?'signup':'signin'));
+$('#authForm').addEventListener('submit',async ev=>{
+  ev.preventDefault();if(authBusy||!sb)return;
+  const email=$('#a-email').value.trim(),password=$('#a-pass').value;
+  const err=m=>{$('#aerr').textContent=m;$('#aerr').hidden=false};
+  $('#aerr').hidden=true;$('#amsg').hidden=true;
+  if(!/^\S+@\S+\.\S+$/.test(email)) return err('Укажи почту.');
+  if(password.length<6) return err('Пароль — минимум 6 символов.');
+  authBusy=true;$('#authSubmit').disabled=true;
+  try{
+    const r=authMode==='signup'
+      ?await sb.auth.signUp({email,password,options:{emailRedirectTo:location.href.split('#')[0]}})
+      :await sb.auth.signInWithPassword({email,password});
+    if(r.error) err(authErrText(r.error.message));
+    else if(authMode==='signup'&&!r.data.session){$('#amsg').textContent='Проверь почту и перейди по ссылке для подтверждения, потом войди.';$('#amsg').hidden=false}
+  }catch(e){err(authErrText(e&&e.message))}
+  finally{authBusy=false;$('#authSubmit').disabled=false}
+});
+$('#logout').addEventListener('click',async()=>{
+  const b=$('#logout');
+  if(!b.dataset.armed){b.dataset.armed='1';b.textContent='Точно выйти?';setTimeout(()=>{b.dataset.armed='';b.textContent='Выйти'},4000);return}
+  b.disabled=true;
+  try{
+    const synced=state.store&&state.store.flush?await state.store.flush():true;
+    if(!synced){toast('Есть неотправленные изменения — подключись к интернету и попробуй ещё раз');return}
+    await sb.auth.signOut();
+  }finally{b.disabled=false;b.dataset.armed='';b.textContent='Выйти'}
+});
+function onSession(session){
+  const uid=session&&session.user?session.user.id:null;
+  if(uid&&state.userId===uid) return;
+  const wasSignedIn=!!state.userId;
+  if(state.store&&state.store.close) state.store.close(wasSignedIn&&!uid);
+  state.store=null;state.entries=[];state.settings={};state.ready=false;state.userId=uid;hideNotice('sync');
+  if(!uid){$('#account').hidden=true;$('#authScreen').hidden=false;setAuthMode(authMode);render();return}
+  $('#authScreen').hidden=true;
+  $('#accountEmail').textContent=session.user.email||'';$('#account').hidden=false;
+  attachStore(syncStore(sb,session.user,()=>{renderMeta();syncNotice()}));
+  render();
+}
+async function startStandalone(){
+  let lib;
+  try{lib=await import(SB_LIB)}
+  catch(e){attachStore(localStore());showNotice('local','<span><b>Нет связи с сервером входа.</b> Пока показываю данные этого браузера — обнови страницу, когда появится интернет.</span>');return}
+  sb=lib.createClient(SB_URL,SB_KEY);
+  sb.auth.onAuthStateChange((_ev,session)=>setTimeout(()=>onSession(session),0));
+}
+
 render();
 (async()=>{
-  let db=null;
-  try{if(window.claude&&window.claude.use){db=await window.claude.use('db');state.downloads=await window.claude.use('downloads')}}catch(e){db=null}
-  const store=db?cloudStore(db):localStore();
-  state.store=store;
-  if(store.local){const n=$('#notice');n.innerHTML='<span><b>Данные хранятся в этом браузере.</b> В другом браузере или на другом устройстве их не будет — периодически делай «Резервную копию» внизу страницы.</span>';n.hidden=false}
-  store.onSettings(s=>{applySettings(s);if(state.ready)render()});
-  store.onEntries(list=>{state.entries=list.map(clean).filter(Boolean);state.ready=true;render()},
-    ()=>{const n=$('#notice');n.innerHTML='<span><b>Связь с хранилищем прервалась.</b> Обнови страницу — данные не потеряны.</span>';n.hidden=false});
+  if(window.claude&&window.claude.use){
+    /* Артефакт на claude.ai: хранилище платформы */
+    let db=null;
+    try{db=await window.claude.use('db');state.downloads=await window.claude.use('downloads')}catch(e){db=null}
+    attachStore(db?cloudStore(db):localStore());
+  }else{
+    /* Самостоятельная версия (GitHub Pages / приложение на телефоне): вход и синхронизация */
+    await startStandalone();
+  }
 })();
 })();
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
 </script>
 </body>
 </html>
