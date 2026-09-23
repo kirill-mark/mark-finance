@@ -1,7 +1,7 @@
 // Офлайн-кеш. Страница — сначала из сети; ассеты — из кеша с обновлением.
 // Запросы к Supabase (данные, вход, обновления) никогда не кешируются.
-const CACHE = "mark-finance-99eda47-mue9x3ds";
-const SHELL = ["./", "./index.html", "./manifest.json", "./assets/app.js?v=99eda47-mue9x3ds", "./assets/app.css?v=99eda47-mue9x3ds", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-180.png"];
+const CACHE = "mark-finance-4f90082-muedtrc8";
+const SHELL = ["./", "./index.html", "./manifest.json", "./assets/app.js?v=4f90082-muedtrc8", "./assets/app.css?v=4f90082-muedtrc8", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-180.png"];
 const HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });

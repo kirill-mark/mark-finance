@@ -446,7 +446,14 @@ export function SignIn({ notAllowed }: { notAllowed?: boolean }) {
       }}>
         <div class="brand"><div class="logo">M</div><div><h1>Mark Finance</h1><p>Карманный финансовый директор</p></div></div>
         {notAllowed ? (
-          <p class="warn-line">Этот аккаунт не подключён к финансовому директору. Доступ выдаётся настройкой развёртывания (таблица cfo_allowed_users).</p>
+          <>
+            <p class="warn-line">Аккаунт <b>{useApp().session?.user.email ?? "—"}</b> не подключён к финансовому директору. Доступ выдаётся строкой в таблице cfo_allowed_users (SQL в Supabase).</p>
+            <p class="fine">Вход общий с планировщиком MARK: если это не тот аккаунт — выйди и войди нужной почтой.</p>
+            <div class="actions-row">
+              <Btn kind="primary" onClick={() => location.reload()}>Проверить снова</Btn>
+              <Btn onClick={() => api.signOut().then(() => location.reload())}>Выйти и войти другим аккаунтом</Btn>
+            </div>
+          </>
         ) : <p class="fine">Вход тем же аккаунтом, что и в планировщике MARK. Регистрации здесь нет — приложение закрыто.</p>}
         <Field label="Почта"><input type="email" autoComplete="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} /></Field>
         <Field label="Пароль"><input type="password" autoComplete="current-password" value={pass} onInput={(e) => setPass((e.target as HTMLInputElement).value)} /></Field>
